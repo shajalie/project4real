@@ -1,4 +1,5 @@
 // Sammy Hajalie
+// Alie Hajalie
 
 #include "LogMgr.h"
 
@@ -7,14 +8,13 @@ void
 int getLastLSN(int txnum) {
 	// not sure, get the lastest that is in the logtail
 	// if not get the lastest one in the log file?
-	if (logtail.size() != 0) {
-		for (int = logtail.size()-1 ; i >= 0 ; i--) {
-			LogRecord *temp = logtail[i];
-			if (temp->getTxID() == txnum) {
-				return temp->getLSN();
-			}
-		}
+	if(tx_table.count(txnum) > 0) {
+		return tx_table[txnum].lastSLN;
 	}
+	else {
+		return null;
+	}
+	//test
 }
 
 void setLastLSN(int txnum, int lsn) {
