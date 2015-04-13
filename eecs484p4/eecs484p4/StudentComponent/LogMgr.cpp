@@ -13,7 +13,7 @@ int LogNgr::getLastLSN(int txnum) {
 	else {
 		return null;
 	}
-	//testas
+	//testasassa
 }
 
 void LogMgr::setLastLSN(int txnum, int lsn) {
