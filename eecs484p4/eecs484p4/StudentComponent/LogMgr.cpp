@@ -3,9 +3,8 @@
 
 #include "LogMgr.h"
 
-void 
 
-int getLastLSN(int txnum) {
+int LogNgr::getLastLSN(int txnum) {
 	// not sure, get the lastest that is in the logtail
 	// if not get the lastest one in the log file?
 	if(tx_table.count(txnum) > 0) {
@@ -17,7 +16,7 @@ int getLastLSN(int txnum) {
 	//test
 }
 
-void setLastLSN(int txnum, int lsn) {
+void LogMgr::setLastLSN(int txnum, int lsn) {
 
 	// set Prev Lsn of this tx to last lsn
 
@@ -27,11 +26,11 @@ void setLastLSN(int txnum, int lsn) {
 }
 
 // who knows
-void setStorageEngine(StorageEngine* engine) {
+void LogMgr::setStorageEngine(StorageEngine* engine) {
 	se = engine;
 }
 
-void checkpoint() {
+void LogMgr::checkpoint() {
 	// write begin checkpoint to log file?
 	int lsn = se.nextLSN();
 	int prevLSN = getLastLSN(txid);
@@ -43,12 +42,12 @@ void checkpoint() {
 
 }
 
-void analyze(vector <LogRecord*> log) {
+void LogMgr::analyze(vector <LogRecord*> log) {
 
 
 }
 
-int write(int txid, int page_id, int offset, string input, string oldtext) {
+int LogMgr::write(int txid, int page_id, int offset, string input, string oldtext) {
 
 	// check point is where the writes go to the DB?
 	// so update the log on this write?
