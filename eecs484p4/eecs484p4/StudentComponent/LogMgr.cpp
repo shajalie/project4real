@@ -127,7 +127,9 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 }
 
 void LogMgr::undo(vector <LogRecord*> log, int txnum) {
-	
+	if(txnum == NULL_TX) {
+
+	}
 }
 
 
@@ -160,8 +162,10 @@ void LogMgr::checkpoint() {
 	logtail.push_back(new LogRecord(se->nextLSN(), NULL_LSN, NULL_TX, BEGIN_CKPT));
 
 	//End Checkpoint
-	logtail.push_back(new ChkptLogRecord(se->nextLSN(), NULL_LSN, 
+	int lsn = se->nextLSN();
+	logtail.push_back(new ChkptLogRecord(lsn, NULL_LSN, 
 		NULL_TX, tx_table, dirty_page_table));
+	flushLogTail(lsn);
 
 }
 
@@ -188,7 +192,7 @@ void LogMgr::commit(int txid) {
 }
 
 void LogMgr::pageFlushed(int page_id) {
-	flushLogTail(page_id);
+	flushLogTail(se->getLSN(page_id));
 }
 
 void LogMgr::recover(string log) {
