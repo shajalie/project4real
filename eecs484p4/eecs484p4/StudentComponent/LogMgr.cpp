@@ -94,6 +94,36 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	}
 }
 
+bool checkIfRedoneUpdate(UpdateLogRecord * upd_ptr) {
+	if(dirty_page_table.count(upd_ptr->getTxID()) > 0) {
+		return false;
+	}
+	else if(dirty_page_table[upd_ptr->getTxID()] > upd_ptr->getLSN()) {
+		return false;
+	}
+	else if(se->getPageLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
+		return false;
+	} 
+	else {
+		return true;
+	}
+}
+
+bool checkIfRedoneCLR(CompensationLogRecord * upd_ptr) {
+	if(dirty_page_table.count(upd_ptr->getTxID()) > 0) {
+		return false;
+	}
+	else if(dirty_page_table[upd_ptr->getTxID()] > upd_ptr->getLSN()) {
+		return false;
+	}
+	else if(se->getPageLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
+		return false;
+	} 
+	else {
+		return true;
+	}
+}
+
 bool LogMgr::redo(vector <LogRecord*> log) {
 	//Find smallest log record in dirt page table
 	int min = std::numeric_limits<int>::max();
@@ -113,22 +143,40 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 	for(int i = index; i < log.size(); ++i) {
 		if(log[i]->getType() == UPDATE) {
 			UpdateLogRecord * upd_ptr = dynamic_cast<UpdateLogRecord *>(log[i]);
-			se->pageWrite(upd_ptr->getPageID(), upd_ptr->getOffset(), 
+			if(checkIfRedoneUpdate(upd_ptr)) {
+				bool a = se->pageWrite(upd_ptr->getPageID(), upd_ptr->getOffset(), 
 				upd_ptr->getAfterImage(), upd_ptr->getLSN());
+				if(a == false) {
+					return false;
+				}
+			}
 		}
 		if(log[i]->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
-			se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(),
-				chk_ptr->getAfterImage(), chk_ptr->getLSN());
+			if(checkIfRedoneCLR(chk_ptr)) {
+				bool a = se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(),
+					chk_ptr->getAfterImage(), chk_ptr->getLSN());
+				if(a == false) {
+					return false;
+				}
+			}
 		}
 	}
+	return true;
 	//DONE
 
 }
 
 void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	if(txnum == NULL_TX) {
+		priority_queue<int> toUndo;
+		for(auto& kv : dirty_page_table) {
+			toUndo.push(kv.second);
+		}
 
+		while(!toUndo.empty()) {
+
+		}
 	}
 }
 
@@ -198,6 +246,12 @@ void LogMgr::pageFlushed(int page_id) {
 void LogMgr::recover(string log) {
 	vector<LogRecord*> lr = stringToLRVector(log);
 	analyze(lr);
+	bool a = recover(log);
+	if(a == false) {
+		//PIAZZA says to drop everything if returns false
+		return;
+	}
+	undo(log, NULL_TX);
 	//MORE TO DO
 }
 
