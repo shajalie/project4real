@@ -66,14 +66,14 @@ void LogMgr::checkpoint() {
 
 	// which transaction and which page for endcheckpoint
 	// tx_table and dirty page
-	int lsnEndChpt = se->nextLSN;
+	int lsnEndChpt = se->nextLSN();
 	LogRecord* endChkLog = new ChkptLogRecord(lsnEndChpt, 
 		lsnBeginCkpt, NULL_TX, tx_table, dirty_page_table);
 	logtail.push_back(endChkLog);
 
 	// flush txTable and dirty page tablet to disk
 	// which is the log
-	flushLogTail(logtail);
+	flushLogTail(lsnEndChpt);
 
 }
 
@@ -123,7 +123,7 @@ int LogMgr::write(int txid, int page_id, int offset, string input, string oldtex
 	tx_table[txid] = tempUpdate; // or use map.insert
 
 	// add to dirty page table, add earilest lsn for this page ID
-	if (dirty_page_table.find(page_id) == end) {
+	if (dirty_page_table.find(page_id) == dirty_page_table.end()) {
 		dirty_page_table[page_id] = lsn; // not found, so new one
 	}
 
