@@ -42,12 +42,13 @@ void LogMgr::flushLogTail(int maxLSN) {
 
 void LogMgr::analyze(vector <LogRecord*> log) {
 	//ACQUIRING MOST RECENT BEGIN_CHKPOINT LOG RECORD
-	int mostRecentBegin = 0; //not 0?
-	for(int i = 0; i < log.size(); ++i) {
-		if(log[i]->getType() == BEGIN_CKPT) {
-			mostRecentBegin = i;
-		}
-	}
+	// int mostRecentBegin = 0; //not 0?
+	// for(int i = 0; i < log.size(); ++i) {
+	// 	if(log[i]->getType() == BEGIN_CKPT) {
+	// 		mostRecentBegin = i;
+	// 	}
+	// }
+	int mostRecentBegin = se->get_master();
 	//Get associated END_CHKPOINT
 	int endCheckIndex = mostRecentBegin;
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
@@ -171,14 +172,54 @@ LogRecord* findLSN(vector <LogRecord*> log, int LSN) {
 }
 
 void LogMgr::undo(vector <LogRecord*> log, int txnum) {
+	priority_queue<int> toUndo;
 	if(txnum == NULL_TX) {
-		priority_queue<int> toUndo;
 		for(auto& kv : dirty_page_table) {
 			toUndo.push(kv.second);
 		}
+	}
+	else {
+		toUndo.push(txnum);
+	}
+	
 		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
-		while(!toUndo.empty()) {
-			// if(getLastLSN(toUndo.top())
+	while(!toUndo.empty()) {
+		LogRecord* lr = findLSN(log, getLastLSN(toUndo.top()));
+		if(lr == NULL) {
+			toUndo.pop();
+			continue;
+		}
+		if(lr->getType() == CLR) {
+			CompensationLogRecord * chk_ptr = dynamic_cast<
+				CompensationLogRecord *>(lr);
+			if(chk_ptr->getUndoNextLSN() != NULL_LSN) {
+				toUndo.pop();
+				toUndo.push(chk_ptr->getUndoNextLSN());
+			}
+			else {
+				int newLSN = se->nextLSN();
+				logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+				 chk_ptr->getTxID(), END));
+				setLastLSN(chk_ptr->getTxID(), newLSN);
+				tx_table.erase(toUndo.top());
+				toUndo.pop();
+			}
+		}
+		else if(lr->getType() == UPDATE) {
+			UpdateLogRecord * chk_ptr = dynamic_cast<
+				UpdateLogRecord *>(lr);
+			int newLSN = se->nextLSN();
+			logtail.push_back(new CompensationLogRecord(newLSN,
+				getLastLSN(chk_ptr->getTxID()), chk_ptr->getTxID(),
+				 chk_ptr->getPageID(), chk_ptr->getOffset(),
+				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN()));
+			setLastLSN(chk_ptr->getTxID(), newLSN);
+			se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getAfterImage(), newLSN);
+			toUndo.pop();
+			toUndo.push(chk_ptr->getprevLSN());
+		}
+		else {
+			toUndo.pop();
 		}
 	}
 }
@@ -196,7 +237,10 @@ vector<LogRecord*> LogMgr::stringToLRVector(string logstring) {
 }
 
 void LogMgr::abort(int txid) {
-
+	int lsn = se->nextLSN();
+	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), txid, ABORT));
+	setLastLSN(txid, lsn);
+	undo(logtail, txid);
 }
 
 void LogMgr::checkpoint() {
@@ -210,8 +254,9 @@ void LogMgr::checkpoint() {
 	// end checkpoint
 
 	//Begin Checkpoint
-	logtail.push_back(new LogRecord(se->nextLSN(), NULL_LSN, NULL_TX, BEGIN_CKPT));
-
+	int bLSN = se->nextLSN();
+	logtail.push_back(new LogRecord(bLSN, NULL_LSN, NULL_TX, BEGIN_CKPT));
+	se->store_master(bLSN);
 	//End Checkpoint
 	int lsn = se->nextLSN();
 	logtail.push_back(new ChkptLogRecord(lsn, NULL_LSN, 
@@ -226,20 +271,22 @@ void LogMgr::commit(int txid) {
 	// int prevLSN = getLastLSN(txid);
 	// logtail.push_back(new LogRecord(lsn, prevLSN, BEGIN_CKPT));
 
-	int lsnBeginCkpt = se->nextLSN();
-	LogRecord* lr = new LogRecord(lsnBeginCkpt, NULL_LSN, NULL_TX, BEGIN_CKPT);
+	int lsn = se->nextLSN();
+	int prevLSN = getLastLSN(txid);
+	if (!prevLSN) {
+		prevLSN = NULL_LSN;
+	}
+	LogRecord* lr = new LogRecord(lsn, prevLSN, txid, COMMIT);
+	setLastLSN(txid, lsn);
 	logtail.push_back(lr);
 
-	// which transaction and which page for endcheckpoint
-	// tx_table and dirty page
-	int lsnEndChpt = se->nextLSN();
-	LogRecord* endChkLog = new ChkptLogRecord(lsnEndChpt, 
-		lsnBeginCkpt, NULL_TX, tx_table, dirty_page_table);
-	logtail.push_back(endChkLog);
+	// // make it c
+	// txTableEntry tempUpdate(lsn, C);
+	// tx_table[txid] = tempUpdate; // or use map.insert
+	flushLogTail(lsn);
+	//MUST DELETE FROM TX TABLE WHEN COMMIT
+	tx_table.erase(txid);
 
-	// flush txTable and dirty page tablet to disk
-	// which is the log
-	flushLogTail(lsnEndChpt);
 }
 
 void LogMgr::pageFlushed(int page_id) {
@@ -271,6 +318,7 @@ int LogMgr::write(int txid, int page_id, int offset, string input, string oldtex
 	LogRecord* lr = new UpdateLogRecord(lsn, prevLSN, 
 		txid, page_id, offset, oldtext, input);
 	logtail.push_back(lr);
+	setLastLSN(txid, lsn);
 	// add this to the transaction table
 	// make it U
 	txTableEntry tempUpdate(lsn, U);
