@@ -24,6 +24,7 @@ void LogMgr::setLastLSN(int txnum, int lsn) {
 	// set the new lastLSN
 	tx_table[txnum].lastLSN = lsn;
 
+
 }
 
 void LogMgr::flushLogTail(int maxLSN) {
@@ -38,8 +39,36 @@ void LogMgr::flushLogTail(int maxLSN) {
 }
 
 void LogMgr::analyze(vector <LogRecord*> log) {
-
-
+	for(int i = 0; i < log.size(); ++i) {
+		if( log[i]->getType() == END) {
+			//MAY NEED TO DO ADDITIONAL CHECKS
+			tx_table.erase(log[i]->getTxID() );
+		}
+		else {
+			//ADD TO TRANSACTION TABLE
+			tx_table[log[i]->getTxID() ].lastLSN = log[i]->getLSN();
+			if(log[i]->getType() == COMMIT) {
+				tx_table[log[i]->getTxID() ].status = C;
+			}
+			else {
+				tx_table[log[i]->getTxID() ].status = U;
+			}
+		}
+		if( (log[i]->getType() == UPDATE || log[i]->getType() == CLR) ) {
+			if(log[i]->getType() == UPDATE) {
+				UpdateLogRecord * upd_ptr = dynamic_cast<UpdateLogRecord *>(log[i]);
+				if(dirty_page_table.count(upd_ptr->getPageID()) == 0) {
+					dirty_page_table[upd_ptr->getPageID()] = upd_ptr->getLSN();
+				}
+			}
+			if(log[i]->getType() == CLR) {
+				CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
+				if(dirty_page_table.count(chk_ptr->getPageID()) == 0) {
+					dirty_page_table[chk_ptr->getPageID()] = chk_ptr->getLSN();
+				}
+			}
+		}
+	}
 }
 
 bool LogMgr::redo(vector <LogRecord*> log) {
