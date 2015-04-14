@@ -68,6 +68,8 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 		}
 		else {
 			//ADD TO TRANSACTION TABLE
+			txTableEntry ab = txTableEntry();
+			tx_table[log[i]->getTxID() ] = ab;
 			tx_table[log[i]->getTxID() ].lastLSN = log[i]->getLSN();
 			if(log[i]->getType() == COMMIT) {
 				tx_table[log[i]->getTxID() ].status = C;
@@ -94,35 +96,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	}
 }
 
-bool checkIfRedoneUpdate(UpdateLogRecord * upd_ptr) {
-	if(dirty_page_table.count(upd_ptr->getTxID()) > 0) {
-		return false;
-	}
-	else if(dirty_page_table[upd_ptr->getTxID()] > upd_ptr->getLSN()) {
-		return false;
-	}
-	else if(se->getPageLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
-		return false;
-	} 
-	else {
-		return true;
-	}
-}
 
-bool checkIfRedoneCLR(CompensationLogRecord * upd_ptr) {
-	if(dirty_page_table.count(upd_ptr->getTxID()) > 0) {
-		return false;
-	}
-	else if(dirty_page_table[upd_ptr->getTxID()] > upd_ptr->getLSN()) {
-		return false;
-	}
-	else if(se->getPageLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
-		return false;
-	} 
-	else {
-		return true;
-	}
-}
 
 bool LogMgr::redo(vector <LogRecord*> log) {
 	//Find smallest log record in dirt page table
@@ -143,7 +117,17 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 	for(int i = index; i < log.size(); ++i) {
 		if(log[i]->getType() == UPDATE) {
 			UpdateLogRecord * upd_ptr = dynamic_cast<UpdateLogRecord *>(log[i]);
-			if(checkIfRedoneUpdate(upd_ptr)) {
+			bool toRedo = true;
+			if(dirty_page_table.count(upd_ptr->getTxID()) > 0) {
+				toRedo = false;
+			}
+			else if(dirty_page_table[upd_ptr->getTxID()] > upd_ptr->getLSN()) {
+				toRedo = false;
+			}
+			else if(se->getLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
+				toRedo = false;
+			} 
+			if(toRedo) {
 				bool a = se->pageWrite(upd_ptr->getPageID(), upd_ptr->getOffset(), 
 				upd_ptr->getAfterImage(), upd_ptr->getLSN());
 				if(a == false) {
@@ -153,7 +137,17 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		}
 		if(log[i]->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
-			if(checkIfRedoneCLR(chk_ptr)) {
+			bool toRedo = true;
+			if(dirty_page_table.count(chk_ptr->getTxID()) > 0) {
+				toRedo = false;
+			}
+			else if(dirty_page_table[chk_ptr->getTxID()] > chk_ptr->getLSN()) {
+				toRedo = false;
+			}
+			else if(se->getLSN(chk_ptr->getPageID()) >= chk_ptr->getLSN()) {
+				toRedo = false;
+			} 
+			if(toRedo) {
 				bool a = se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(),
 					chk_ptr->getAfterImage(), chk_ptr->getLSN());
 				if(a == false) {
@@ -167,15 +161,24 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 
 }
 
+LogRecord* findLSN(vector <LogRecord*> log, int LSN) {
+	for(int i = 0; i < log.size(); ++i) {
+		if(log[i]->getLSN() == LSN) {
+			return log[i];
+		}
+	}
+	return NULL;
+}
+
 void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	if(txnum == NULL_TX) {
 		priority_queue<int> toUndo;
 		for(auto& kv : dirty_page_table) {
 			toUndo.push(kv.second);
 		}
-
+		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
 		while(!toUndo.empty()) {
-
+			// if(getLastLSN(toUndo.top())
 		}
 	}
 }
@@ -246,12 +249,12 @@ void LogMgr::pageFlushed(int page_id) {
 void LogMgr::recover(string log) {
 	vector<LogRecord*> lr = stringToLRVector(log);
 	analyze(lr);
-	bool a = recover(log);
+	bool a = redo(lr);
 	if(a == false) {
 		//PIAZZA says to drop everything if returns false
 		return;
 	}
-	undo(log, NULL_TX);
+	undo(lr, NULL_TX);
 	//MORE TO DO
 }
 
