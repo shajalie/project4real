@@ -28,8 +28,9 @@ void LogMgr::setLastLSN(int txnum, int lsn) {
 
 void LogMgr::flushLogTail(int maxLSN) {
 	for(int i = 0; i < logtail.size(); ++i) {
-		if(logtail[i]->getLSN() < maxLSN) {
+		if(logtail[i]->getLSN() <= maxLSN) {
 			se->updateLog(logtail[i]->toString());
+			delete logtail[i];
 			logtail.erase(logtail.begin() + i);
 			i--;
 		}
@@ -81,13 +82,25 @@ int LogMgr::write(int txid, int page_id, int offset, string input, string oldtex
 
 	// check point is where the writes go to the DB?
 	// so update the log on this write?
-	// int lsn = se.nextLSN();
-	// int prevLSN = getLastLSN(txid);
-	// logtail.push_back(new UpdateLogRecord(lsn, prevLSN, 
-	// 	txid, page_id, offset, oldtxt, input));
+	int lsn = se->nextLSN();
+	int prevLSN = getLastLSN(txid);
+	if (!prevLSN) {
+		prevLSN = NULL_LSN; // was null
+	}
 
-	// // who knows
-	// updatePage(page_id, offset, input);
+	LogRecord* lr = new UpdateLogRecord(lsn, prevLSN, 
+		txid, page_id, offset, oldtext, input);
+	logtail.push_back(lr);
+	// add this to the transaction table
+	// make it U
+	txTableEntry tempUpdate(lsn, U);
+	tx_table[txid] = tempUpdate; // or use map.insert
+
+	// use updateLog in se, piazza
+	string logString = lr->toString();
+	// se->updateLog(logString);
+	flushLogTail(lsn);
+	return lsn;
 
 }
 
