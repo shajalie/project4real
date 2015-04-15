@@ -195,7 +195,6 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	}
 	else {
 		toUndo.push(getLastLSN(txnum));
-		cout << getLastLSN(txnum) << " " << toUndo.top() << endl;
 	}
 	
 		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
@@ -204,10 +203,8 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 		LogRecord* lr = findLSN(log, toUndo.top());
 		if(lr == NULL) {
 			toUndo.pop();
-			cout << "Doesn't find something" << endl;
 			continue;
 		}
-		cout << "Finds something" << endl;
 		if(lr->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<
 				CompensationLogRecord *>(lr);
@@ -230,21 +227,23 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 			UpdateLogRecord * chk_ptr = dynamic_cast<
 				UpdateLogRecord *>(lr);
 			int newLSN = se->nextLSN();
-			logtail.push_back(new CompensationLogRecord(newLSN,
+			CompensationLogRecord* updLR = new CompensationLogRecord(newLSN,
 				getLastLSN(chk_ptr->getTxID()), chk_ptr->getTxID(),
 				 chk_ptr->getPageID(), chk_ptr->getOffset(),
-				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN()));
-			setLastLSN(chk_ptr->getTxID(), newLSN);
+				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN());
+			logtail.push_back(updLR);
+			// log.push_back(updLR);
+			// setLastLSN(chk_ptr->getTxID(), newLSN);
 			//getbefore or getafter?
 			bool a = se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getBeforeImage(), newLSN);
 			// if(a == false) {
 			// 	return;
 			// }
 			/*This part not needed? (adding end record?)*/
-			// newLSN = se->nextLSN();
-			// logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
-			// chk_ptr->getTxID(), END ));
-			// tx_table.erase	(chk_ptr->getTxID());
+			newLSN = se->nextLSN();
+			logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+			chk_ptr->getTxID(), END ));
+			tx_table.erase	(chk_ptr->getTxID());
 
 			// setLastLSN(chk_ptr->getTxID(), newLSN);
 			// setLastLSN(chk_ptr->getTxID(), -1);
@@ -277,13 +276,15 @@ void LogMgr::abort(int txid) {
 	logtail.push_back(lr);
 	setLastLSN(txid, lsn);
 	// flushLogTail(lsn);
-	vector<LogRecord*> log = stringToLRVector(se->getLog());
-	log.push_back(lr);
+	vector<LogRecord*> logStored = stringToLRVector(se->getLog());
+	vector<LogRecord*> log;
+	log.reserve(logStored.size() + logtail.size());
+	log.insert(log.end(), logStored.begin(), logStored.end());
+	log.insert(log.end(), logtail.begin(), logtail.end());
 	// analyze(log);
 	// redo(log);
 	// txTableEntry a = txTableEntry(lsn, U);
 	// tx_table[txid] = a;
-	cout << tx_table[txid].status << endl;
 	// analyze(log);
 	// redo(log);
 	undo(log, txid);
@@ -336,11 +337,7 @@ void LogMgr::commit(int txid) {
 	setLastLSN(txid, lsn);
 	logtail.push_back(lr);
 
-		lsn = se->nextLSN();
-	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
-		txid, END));
-	setLastLSN(txid, lsn);
-	tx_table.erase(txid);
+
 	
 	// // make it c
 	// txTableEntry tempUpdate(lsn, C);
@@ -348,7 +345,11 @@ void LogMgr::commit(int txid) {
 	flushLogTail(lsn);
 
 	//MUST DELETE FROM TX TABLE WHEN COMMIT
-
+	lsn = se->nextLSN();
+	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
+		txid, END));
+	setLastLSN(txid, lsn);
+	tx_table.erase(txid);
 
 
 }
