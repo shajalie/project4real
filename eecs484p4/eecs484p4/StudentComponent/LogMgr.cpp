@@ -73,6 +73,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 			txTableEntry ab = txTableEntry();
 			tx_table[log[i]->getTxID() ] = ab;
 			tx_table[log[i]->getTxID() ].lastLSN = log[i]->getLSN();
+			setLastLSN(log[i]->getLSN, log[i]->getTxID() ); // added
 			if(log[i]->getType() == COMMIT) {
 				tx_table[log[i]->getTxID() ].status = C;
 			}
@@ -112,7 +113,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 	int index = 0;
 	for(int i = 0; i < log.size(); ++i) {
 		if(log[i]->getLSN() == min) {
-			index = log[i]->getLSN();
+			index = i;
 			break;
 		}
 	}
@@ -137,6 +138,8 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 				}
 			}
 		}
+		cout << toRedo << endl;
+		
 		if(log[i]->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
 			bool toRedo = true;
@@ -235,6 +238,7 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 			toUndo.pop();
 		}
 	}
+	//MODIFY DIRTY PAGE TABLE
 }
 
 
@@ -274,12 +278,15 @@ void LogMgr::checkpoint() {
 	//Begin Checkpoint
 	int bLSN = se->nextLSN();
 	logtail.push_back(new LogRecord(bLSN, NULL_LSN, NULL_TX, BEGIN_CKPT));
-	se->store_master(bLSN);
 	//End Checkpoint
 	int lsn = se->nextLSN();
-	logtail.push_back(new ChkptLogRecord(lsn, NULL_LSN, 
+	logtail.push_back(new ChkptLogRecord(lsn, bLSN, 
 		NULL_TX, tx_table, dirty_page_table));
+	//When you've added a checkpoint to the 
+	//logtail, you should flush the log tail to disk and write the master record; see page 587.
 	flushLogTail(lsn);
+	se->store_master(bLSN);
+
 
 }
 
@@ -297,16 +304,19 @@ void LogMgr::commit(int txid) {
 	LogRecord* lr = new LogRecord(lsn, prevLSN, txid, COMMIT);
 	setLastLSN(txid, lsn);
 	logtail.push_back(lr);
-	lsn = se->nextLSN();
-	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
-		txid, END));
-	setLastLSN(txid, lsn);
+	
 	// // make it c
 	// txTableEntry tempUpdate(lsn, C);
 	// tx_table[txid] = tempUpdate; // or use map.insert
 	flushLogTail(lsn);
+
 	//MUST DELETE FROM TX TABLE WHEN COMMIT
+	lsn = se->nextLSN();
+	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
+		txid, END));
+	setLastLSN(txid, lsn);
 	tx_table.erase(txid);
+
 
 }
 
@@ -332,11 +342,12 @@ int LogMgr::write(int txid, int page_id, int offset, string input, string oldtex
 	// check point is where the writes go to the DB?
 	// so update the log on this write?
 	int lsn = se->nextLSN();
+	// flushLogTail(lsn);
+
 	int prevLSN = getLastLSN(txid);
 	if (!prevLSN) {
 		prevLSN = NULL_LSN; // was null
 	}
-
 	LogRecord* lr = new UpdateLogRecord(lsn, prevLSN, 
 		txid, page_id, offset, oldtext, input);
 	logtail.push_back(lr);
@@ -345,11 +356,11 @@ int LogMgr::write(int txid, int page_id, int offset, string input, string oldtex
 	// make it U
 	txTableEntry tempUpdate(lsn, U);
 	tx_table[txid] = tempUpdate; // or use map.insert
+	dirty_page_table[page_id] = lsn;
 
 	// use updateLog in se, piazza
 	string logString = lr->toString();
 	// se->updateLog(logString);
-	flushLogTail(lsn);
 	return lsn;
 
 }
