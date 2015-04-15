@@ -130,6 +130,8 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 			else if(se->getLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
 				toRedo = false;
 			} 
+
+			cout << toRedo << endl;
 			if(toRedo) {
 				bool a = se->pageWrite(upd_ptr->getPageID(), upd_ptr->getOffset(), 
 				upd_ptr->getAfterImage(), upd_ptr->getLSN());
@@ -138,8 +140,8 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 				}
 			}
 		}
-		cout << toRedo << endl;
 		
+
 		if(log[i]->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
 			bool toRedo = true;
