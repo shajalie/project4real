@@ -158,6 +158,14 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 			}
 		}
 	}
+	for(auto& kv : tx_table) {
+		if(kv.second.status == C) {
+			int lsn = se->nextLSN();
+			logtail.push_back(new LogRecord(lsn, getLastLSN(kv.first),
+				kv.first, END));
+			tx_table.erase(kv.first);
+		}
+	}
 	return true;
 	//DONE
 
@@ -350,3 +358,7 @@ int LogMgr::write(int txid, int page_id, int offset, string input, string oldtex
 void LogMgr::setStorageEngine(StorageEngine* engine) {
 	LogMgr::se = engine;
 }
+
+
+
+
