@@ -74,7 +74,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 			txTableEntry ab = txTableEntry();
 			tx_table[log[i]->getTxID() ] = ab;
 			tx_table[log[i]->getTxID() ].lastLSN = log[i]->getLSN();
-			setLastLSN(log[i]->getLSN, log[i]->getTxID() ); // added
+			setLastLSN(log[i]->getLSN(), log[i]->getTxID() ); // added
 			if(log[i]->getType() == COMMIT) {
 				tx_table[log[i]->getTxID() ].status = C;
 			}
