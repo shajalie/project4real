@@ -67,8 +67,11 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 
 		}
 	}
+	if(mostRecentBegin == -1) {
+		mostRecentBegin = 0;
+	}
 	//NEED TO GET PROPER LOG RECRODS, ETC
-	for(int i = 0; i < log.size(); ++i) {
+	for(int i = mostRecentBegin; i < log.size(); ++i) {
 		cout << "This loop has to run\n";
 		if( log[i]->getType() == END) {
 			//MAY NEED TO DO ADDITIONAL CHECKS
@@ -172,6 +175,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 			int lsn = se->nextLSN();
 			logtail.push_back(new LogRecord(lsn, getLastLSN(kv.first),
 				kv.first, END));
+			// setLastLSN(kv.first, lsn);
 			tx_table.erase(kv.first);
 		}
 	}
@@ -221,7 +225,9 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				int newLSN = se->nextLSN();
 				logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
 				 chk_ptr->getTxID(), END));
-				setLastLSN(chk_ptr->getTxID(), newLSN);
+				// setLastLSN(chk_ptr->getTxID(), newLSN);
+			// setLastLSN(chk_ptr->getTxID(), NULL_LSN);
+
 				tx_table.erase(chk_ptr->getTxID());
 				toUndo.pop();
 			}
@@ -235,11 +241,12 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				 chk_ptr->getPageID(), chk_ptr->getOffset(),
 				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN()));
 			setLastLSN(chk_ptr->getTxID(), newLSN);
-			se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getAfterImage(), newLSN);
+			//getbefore or getafter?
+			se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getBeforeImage(), newLSN);
 			newLSN = se->nextLSN();
 			logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
 			chk_ptr->getTxID(), END ));
-			setLastLSN(chk_ptr->getTxID(), newLSN);
+			setLastLSN(chk_ptr->getTxID(), -1);
 			toUndo.pop();
 			toUndo.push(chk_ptr->getprevLSN());
 		}
@@ -271,7 +278,7 @@ void LogMgr::abort(int txid) {
 	lsn = se->nextLSN();
 	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
 		txid, END));
-	setLastLSN(txid, lsn);
+	// setLastLSN(txid, lsn);
 }
 
 void LogMgr::checkpoint() {
