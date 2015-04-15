@@ -5,6 +5,7 @@
 #include <sstream>
 #include <limits>
 #include <queue>
+#include <iostream> //REMOVE WHEN SUBMIT
 using namespace std;
 
 int LogMgr::getLastLSN(int txnum) {
@@ -48,6 +49,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	// 		mostRecentBegin = i;
 	// 	}
 	// }
+	cout << "analyze\n";
 	int mostRecentBegin = se->get_master();
 	//Get associated END_CHKPOINT
 	int endCheckIndex = mostRecentBegin;
@@ -159,6 +161,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		}
 	}
 	for(auto& kv : tx_table) {
+		cout << kv.first << endl;
 		if(kv.second.status == C) {
 			int lsn = se->nextLSN();
 			logtail.push_back(new LogRecord(lsn, getLastLSN(kv.first),
@@ -183,8 +186,8 @@ LogRecord* findLSN(vector <LogRecord*> log, int LSN) {
 void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	priority_queue<int> toUndo;
 	if(txnum == NULL_TX) {
-		for(auto& kv : dirty_page_table) {
-			toUndo.push(kv.second);
+		for(auto& kv : tx_table) {
+			toUndo.push(getLastLSN(kv.first));
 		}
 	}
 	else {
@@ -193,11 +196,11 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	
 		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
 	while(!toUndo.empty()) {
-		LogRecord* lr = findLSN(log, getLastLSN(toUndo.top()));
-		if(lr == NULL) {
-			toUndo.pop();
-			continue;
-		}
+		LogRecord* lr = findLSN(logtail, toUndo.top());
+		// if(lr == NULL) {
+		// 	toUndo.pop();
+		// 	continue;
+		// }
 		if(lr->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<
 				CompensationLogRecord *>(lr);
@@ -206,11 +209,12 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				toUndo.push(chk_ptr->getUndoNextLSN());
 			}
 			else {
+				cout << "end record written\n";
 				int newLSN = se->nextLSN();
 				logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
 				 chk_ptr->getTxID(), END));
 				setLastLSN(chk_ptr->getTxID(), newLSN);
-				tx_table.erase(toUndo.top());
+				tx_table.erase(chk_ptr->getTxID());
 				toUndo.pop();
 			}
 		}
@@ -271,7 +275,6 @@ void LogMgr::checkpoint() {
 	// done with begin checkpint?
 
 	// end checkpoint
-
 	//Begin Checkpoint
 	int bLSN = se->nextLSN();
 	logtail.push_back(new LogRecord(bLSN, NULL_LSN, NULL_TX, BEGIN_CKPT));
