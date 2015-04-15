@@ -54,6 +54,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
 		if(log[i]->getType() == END_CKPT) {
 			ChkptLogRecord * end_ptr = dynamic_cast<ChkptLogRecord *>(log[i]);
+			endCheckIndex = i;
 			//INITIALIZE TABLES
 			tx_table = end_ptr->getTxTable();
 			dirty_page_table = end_ptr->getDirtyPageTable();
@@ -62,7 +63,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 		}
 	}
 	//NEED TO GET PROPER LOG RECRODS, ETC
-	for(int i = 0; i < log.size(); ++i) {
+	for(int i = endCheckIndex; i < log.size(); ++i) {
 		if( log[i]->getType() == END) {
 			//MAY NEED TO DO ADDITIONAL CHECKS
 			tx_table.erase(log[i]->getTxID() );
@@ -119,10 +120,10 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		if(log[i]->getType() == UPDATE) {
 			UpdateLogRecord * upd_ptr = dynamic_cast<UpdateLogRecord *>(log[i]);
 			bool toRedo = true;
-			if(dirty_page_table.count(upd_ptr->getTxID()) > 0) {
+			if(dirty_page_table.count(upd_ptr->getPageID()) > 0) {
 				toRedo = false;
 			}
-			else if(dirty_page_table[upd_ptr->getTxID()] > upd_ptr->getLSN()) {
+			else if(dirty_page_table[upd_ptr->getPageID()] > upd_ptr->getLSN()) {
 				toRedo = false;
 			}
 			else if(se->getLSN(upd_ptr->getPageID()) >= upd_ptr->getLSN()) {
@@ -139,10 +140,10 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		if(log[i]->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
 			bool toRedo = true;
-			if(dirty_page_table.count(chk_ptr->getTxID()) > 0) {
+			if(dirty_page_table.count(chk_ptr->getPageID()) > 0) {
 				toRedo = false;
 			}
-			else if(dirty_page_table[chk_ptr->getTxID()] > chk_ptr->getLSN()) {
+			else if(dirty_page_table[chk_ptr->getPageID()] > chk_ptr->getLSN()) {
 				toRedo = false;
 			}
 			else if(se->getLSN(chk_ptr->getPageID()) >= chk_ptr->getLSN()) {
@@ -215,6 +216,10 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN()));
 			setLastLSN(chk_ptr->getTxID(), newLSN);
 			se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getAfterImage(), newLSN);
+			newLSN = se->nextLSN();
+			logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+			chk_ptr->getTxID(), END ));
+			setLastLSN(chk_ptr->getTxID(), newLSN);
 			toUndo.pop();
 			toUndo.push(chk_ptr->getprevLSN());
 		}
@@ -241,6 +246,11 @@ void LogMgr::abort(int txid) {
 	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), txid, ABORT));
 	setLastLSN(txid, lsn);
 	undo(logtail, txid);
+	//add end log
+	lsn = se->nextLSN();
+	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
+		txid, END));
+	setLastLSN(txid, lsn);
 }
 
 void LogMgr::checkpoint() {
@@ -279,7 +289,10 @@ void LogMgr::commit(int txid) {
 	LogRecord* lr = new LogRecord(lsn, prevLSN, txid, COMMIT);
 	setLastLSN(txid, lsn);
 	logtail.push_back(lr);
-
+	lsn = se->nextLSN();
+	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
+		txid, END));
+	setLastLSN(txid, lsn);
 	// // make it c
 	// txTableEntry tempUpdate(lsn, C);
 	// tx_table[txid] = tempUpdate; // or use map.insert
@@ -291,6 +304,7 @@ void LogMgr::commit(int txid) {
 
 void LogMgr::pageFlushed(int page_id) {
 	flushLogTail(se->getLSN(page_id));
+	dirty_page_table.erase(page_id);
 }
 
 void LogMgr::recover(string log) {
