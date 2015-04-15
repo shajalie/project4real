@@ -54,10 +54,13 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	//Get associated END_CHKPOINT
 	int endCheckIndex = mostRecentBegin;
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
+			cout << "does this loop run\n";
+
 		if(log[i]->getType() == END_CKPT) {
 			ChkptLogRecord * end_ptr = dynamic_cast<ChkptLogRecord *>(log[i]);
 			endCheckIndex = i;
 			//INITIALIZE TABLES
+			cout << "does this loop run\n";
 			tx_table = end_ptr->getTxTable();
 			dirty_page_table = end_ptr->getDirtyPageTable();
 			break;
@@ -65,7 +68,8 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 		}
 	}
 	//NEED TO GET PROPER LOG RECRODS, ETC
-	for(int i = endCheckIndex; i < log.size(); ++i) {
+	for(int i = 0; i < log.size(); ++i) {
+		cout << "This loop has to run\n";
 		if( log[i]->getType() == END) {
 			//MAY NEED TO DO ADDITIONAL CHECKS
 			tx_table.erase(log[i]->getTxID() );
@@ -106,6 +110,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 	//Find smallest log record in dirt page table
 	int min = std::numeric_limits<int>::max();
 	for(auto& kv : dirty_page_table) {
+		cout << "stuff in dirt page table\n";
 		if(kv.second < min) {
 			min = kv.second;
 		}
@@ -163,6 +168,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 	for(auto& kv : tx_table) {
 		cout << kv.first << endl;
 		if(kv.second.status == C) {
+			cout << "Removing statuses\n";
 			int lsn = se->nextLSN();
 			logtail.push_back(new LogRecord(lsn, getLastLSN(kv.first),
 				kv.first, END));
@@ -187,6 +193,7 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	priority_queue<int> toUndo;
 	if(txnum == NULL_TX) {
 		for(auto& kv : tx_table) {
+			cout << "stuff in tx_table\n";
 			toUndo.push(getLastLSN(kv.first));
 		}
 	}
@@ -196,11 +203,12 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	
 		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
 	while(!toUndo.empty()) {
-		LogRecord* lr = findLSN(logtail, toUndo.top());
-		// if(lr == NULL) {
-		// 	toUndo.pop();
-		// 	continue;
-		// }
+		LogRecord* lr = findLSN(log, toUndo.top());
+		if(lr == NULL) {
+			toUndo.pop();
+			continue;
+		}
+		cout << "Doesn't return null\n";
 		if(lr->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<
 				CompensationLogRecord *>(lr);
