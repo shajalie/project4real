@@ -3,6 +3,7 @@
 
 #include "LogMgr.h"
 #include <sstream>
+#include <iostream>
 #include <limits>
 #include <queue>
 using namespace std;
