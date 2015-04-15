@@ -5,7 +5,6 @@
 #include <sstream>
 #include <limits>
 #include <queue>
-#include <iostream> //REMOVE WHEN SUBMIT
 using namespace std;
 
 int LogMgr::getLastLSN(int txnum) {
@@ -49,18 +48,15 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	// 		mostRecentBegin = i;
 	// 	}
 	// }
-	cout << "analyze\n";
 	int mostRecentBegin = se->get_master();
 	//Get associated END_CHKPOINT
 	int endCheckIndex = mostRecentBegin;
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
-			cout << "does this loop run\n";
 
 		if(log[i]->getType() == END_CKPT) {
 			ChkptLogRecord * end_ptr = dynamic_cast<ChkptLogRecord *>(log[i]);
 			endCheckIndex = i;
 			//INITIALIZE TABLES
-			cout << "does this loop run\n";
 			tx_table = end_ptr->getTxTable();
 			dirty_page_table = end_ptr->getDirtyPageTable();
 			break;
@@ -72,16 +68,16 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	}
 	//NEED TO GET PROPER LOG RECRODS, ETC
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
-		cout << "This loop has to run\n";
 		if( log[i]->getType() == END) {
 			//MAY NEED TO DO ADDITIONAL CHECKS
 			tx_table.erase(log[i]->getTxID() );
 		}
 		else {
 			//ADD TO TRANSACTION TABLE
-			txTableEntry ab = txTableEntry();
+			txTableEntry ab;
 			tx_table[log[i]->getTxID() ] = ab;
 			tx_table[log[i]->getTxID() ].lastLSN = log[i]->getLSN();
+			// setLastLSN(log[i]->getTxID() , log[i]->getLSN());
 			if(log[i]->getType() == COMMIT) {
 				tx_table[log[i]->getTxID() ].status = C;
 			}
@@ -113,7 +109,6 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 	//Find smallest log record in dirt page table
 	int min = std::numeric_limits<int>::max();
 	for(auto& kv : dirty_page_table) {
-		cout << "stuff in dirt page table\n";
 		if(kv.second < min) {
 			min = kv.second;
 		}
@@ -130,7 +125,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		if(log[i]->getType() == UPDATE) {
 			UpdateLogRecord * upd_ptr = dynamic_cast<UpdateLogRecord *>(log[i]);
 			bool toRedo = true;
-			if(dirty_page_table.count(upd_ptr->getPageID()) > 0) {
+			if(dirty_page_table.count(upd_ptr->getPageID()) == 0) {
 				toRedo = false;
 			}
 			else if(dirty_page_table[upd_ptr->getPageID()] > upd_ptr->getLSN()) {
@@ -150,7 +145,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		if(log[i]->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<CompensationLogRecord *>(log[i]);
 			bool toRedo = true;
-			if(dirty_page_table.count(chk_ptr->getPageID()) > 0) {
+			if(dirty_page_table.count(chk_ptr->getPageID()) == 0) {
 				toRedo = false;
 			}
 			else if(dirty_page_table[chk_ptr->getPageID()] > chk_ptr->getLSN()) {
@@ -169,9 +164,7 @@ bool LogMgr::redo(vector <LogRecord*> log) {
 		}
 	}
 	for(auto& kv : tx_table) {
-		cout << kv.first << endl;
 		if(kv.second.status == C) {
-			cout << "Removing statuses\n";
 			int lsn = se->nextLSN();
 			logtail.push_back(new LogRecord(lsn, getLastLSN(kv.first),
 				kv.first, END));
@@ -197,22 +190,24 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	priority_queue<int> toUndo;
 	if(txnum == NULL_TX) {
 		for(auto& kv : tx_table) {
-			cout << "stuff in tx_table\n";
 			toUndo.push(getLastLSN(kv.first));
 		}
 	}
 	else {
-		toUndo.push(txnum);
+		toUndo.push(getLastLSN(txnum));
+		cout << getLastLSN(txnum) << " " << toUndo.top() << endl;
 	}
 	
 		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
+	//ONLY WRITE END ON SUCCEED PAGEWRITE
 	while(!toUndo.empty()) {
 		LogRecord* lr = findLSN(log, toUndo.top());
 		if(lr == NULL) {
 			toUndo.pop();
+			cout << "Doesn't find something" << endl;
 			continue;
 		}
-		cout << "Doesn't return null\n";
+		cout << "Finds something" << endl;
 		if(lr->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<
 				CompensationLogRecord *>(lr);
@@ -221,7 +216,6 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				toUndo.push(chk_ptr->getUndoNextLSN());
 			}
 			else {
-				cout << "end record written\n";
 				int newLSN = se->nextLSN();
 				logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
 				 chk_ptr->getTxID(), END));
@@ -242,16 +236,24 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN()));
 			setLastLSN(chk_ptr->getTxID(), newLSN);
 			//getbefore or getafter?
-			se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getBeforeImage(), newLSN);
-			newLSN = se->nextLSN();
-			logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
-			chk_ptr->getTxID(), END ));
-			setLastLSN(chk_ptr->getTxID(), -1);
+			bool a = se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getBeforeImage(), newLSN);
+			// if(a == false) {
+			// 	return;
+			// }
+			/*This part not needed? (adding end record?)*/
+			// newLSN = se->nextLSN();
+			// logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+			// chk_ptr->getTxID(), END ));
+			// tx_table.erase	(chk_ptr->getTxID());
+
+			// setLastLSN(chk_ptr->getTxID(), newLSN);
+			// setLastLSN(chk_ptr->getTxID(), -1);
 			toUndo.pop();
 			toUndo.push(chk_ptr->getprevLSN());
 		}
 		else {
 			toUndo.pop();
+			toUndo.push(lr->getprevLSN());
 		}
 	}
 	//MODIFY DIRTY PAGE TABLE
@@ -271,13 +273,27 @@ vector<LogRecord*> LogMgr::stringToLRVector(string logstring) {
 
 void LogMgr::abort(int txid) {
 	int lsn = se->nextLSN();
-	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), txid, ABORT));
+	LogRecord* lr = new LogRecord(lsn, getLastLSN(txid), txid, ABORT);
+	logtail.push_back(lr);
 	setLastLSN(txid, lsn);
-	undo(logtail, txid);
+	// flushLogTail(lsn);
+	vector<LogRecord*> log = stringToLRVector(se->getLog());
+	log.push_back(lr);
+	// analyze(log);
+	// redo(log);
+	// txTableEntry a = txTableEntry(lsn, U);
+	// tx_table[txid] = a;
+	cout << tx_table[txid].status << endl;
+	// analyze(log);
+	// redo(log);
+	undo(log, txid);
 	//add end log
+	/*Commenting this part out because it should already be done in the undo phase*/
 	lsn = se->nextLSN();
+
 	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
 		txid, END));
+	tx_table.erase(txid);
 	// setLastLSN(txid, lsn);
 }
 
@@ -319,6 +335,12 @@ void LogMgr::commit(int txid) {
 	LogRecord* lr = new LogRecord(lsn, prevLSN, txid, COMMIT);
 	setLastLSN(txid, lsn);
 	logtail.push_back(lr);
+
+		lsn = se->nextLSN();
+	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
+		txid, END));
+	setLastLSN(txid, lsn);
+	tx_table.erase(txid);
 	
 	// // make it c
 	// txTableEntry tempUpdate(lsn, C);
@@ -326,11 +348,7 @@ void LogMgr::commit(int txid) {
 	flushLogTail(lsn);
 
 	//MUST DELETE FROM TX TABLE WHEN COMMIT
-	lsn = se->nextLSN();
-	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
-		txid, END));
-	setLastLSN(txid, lsn);
-	tx_table.erase(txid);
+
 
 
 }
