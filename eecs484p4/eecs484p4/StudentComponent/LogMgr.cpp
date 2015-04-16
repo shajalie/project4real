@@ -5,7 +5,6 @@
 #include <sstream>
 #include <limits>
 #include <queue>
-#include <iostream>
 using namespace std;
 
 int LogMgr::getLastLSN(int txnum) {
@@ -195,7 +194,6 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 		}
 	}
 	else {
-		cout << "txnum not null (Abort called)" << endl;
 		toUndo.push(getLastLSN(txnum));
 	}
 	/*Stores the list of transactions that have a CLR written for them,
@@ -206,11 +204,9 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 	while(!toUndo.empty()) {
 		LogRecord* lr = findLSN(log, toUndo.top());
 		if(lr == NULL) {
-			cout << "Not found" << endl;
 			toUndo.pop();
 			continue;
 		}
-		cout << "This part runs" << endl;
 		if(lr->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<
 				CompensationLogRecord *>(lr);
@@ -229,7 +225,6 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 			}
 		}
 		else if(lr->getType() == UPDATE) {
-			cout << "This must run" << endl;
 			UpdateLogRecord * chk_ptr = dynamic_cast<
 				UpdateLogRecord *>(lr);
 			int newLSN = se->nextLSN();
@@ -311,7 +306,6 @@ void LogMgr::abort(int txid) {
 	log.reserve(logStored.size() + logtail.size());
 	log.insert(log.end(), logStored.begin(), logStored.end());
 	log.insert(log.end(), logtail.begin(), logtail.end());
-	cout << log.size() << endl;
 	// analyze(log);
 	// redo(log);
 	// txTableEntry a = txTableEntry(lsn, U);
