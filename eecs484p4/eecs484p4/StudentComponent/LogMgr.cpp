@@ -40,6 +40,15 @@ void LogMgr::flushLogTail(int maxLSN) {
 	}
 }
 
+int findLSNcheckpoint(vector <LogRecord*> log, int LSN) {
+	for(int i = 0; i < log.size(); ++i) {
+		if(log[i]->getLSN() == LSN) {
+			return i;
+		}
+	}
+	return 0;
+}
+
 void LogMgr::analyze(vector <LogRecord*> log) {
 	//ACQUIRING MOST RECENT BEGIN_CHKPOINT LOG RECORD
 	// int mostRecentBegin = 0; //not 0?
@@ -48,7 +57,10 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 	// 		mostRecentBegin = i;
 	// 	}
 	// }
-	int mostRecentBegin = se->get_master();
+	int mostRecentBegin = findLSNcheckpoint	(log, se->get_master());
+	// if(mostRecentBegin == -1) {
+	// 	mostRecentBegin = 0;
+	// }
 	//Get associated END_CHKPOINT
 	int endCheckIndex = mostRecentBegin;
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
@@ -63,9 +75,7 @@ void LogMgr::analyze(vector <LogRecord*> log) {
 
 		}
 	}
-	if(mostRecentBegin == -1) {
-		mostRecentBegin = 0;
-	}
+
 	//NEED TO GET PROPER LOG RECRODS, ETC
 	for(int i = mostRecentBegin; i < log.size(); ++i) {
 		if( log[i]->getType() == END) {
@@ -237,9 +247,9 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 			setLastLSN(chk_ptr->getTxID(), newLSN);
 			//getbefore or getafter?
 			bool a = se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getBeforeImage(), newLSN);
-			// if(a == false) {
-			// 	return;
-			// }
+			if(a == false) {
+				return;
+			}
 			/*This part not needed? (adding end record?)*/
 			// newLSN = se->nextLSN();
 			// logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
@@ -275,6 +285,8 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 		}
 		else {
 			toUndo.pop();
+			toUndo.push(lr->getprevLSN());
+			
 		}
 	}
 	/*
