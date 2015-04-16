@@ -5,6 +5,7 @@
 #include <sstream>
 #include <limits>
 #include <queue>
+#include <iostream>
 using namespace std;
 
 int LogMgr::getLastLSN(int txnum) {
@@ -194,17 +195,22 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 		}
 	}
 	else {
+		cout << "txnum not null (Abort called)" << endl;
 		toUndo.push(getLastLSN(txnum));
 	}
-	
+	/*Stores the list of transactions that have a CLR written for them,
+	so afterwards end records can be written.*/
+	// map<int, bool> transactionsCLR;
 		//REMEMBER TO REMOVE LOG RECORD FROM TRANSACTION TABLE
 	//ONLY WRITE END ON SUCCEED PAGEWRITE
 	while(!toUndo.empty()) {
 		LogRecord* lr = findLSN(log, toUndo.top());
 		if(lr == NULL) {
+			cout << "Not found" << endl;
 			toUndo.pop();
 			continue;
 		}
+		cout << "This part runs" << endl;
 		if(lr->getType() == CLR) {
 			CompensationLogRecord * chk_ptr = dynamic_cast<
 				CompensationLogRecord *>(lr);
@@ -218,12 +224,12 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				 chk_ptr->getTxID(), END));
 				// setLastLSN(chk_ptr->getTxID(), newLSN);
 			// setLastLSN(chk_ptr->getTxID(), NULL_LSN);
-
 				tx_table.erase(chk_ptr->getTxID());
 				toUndo.pop();
 			}
 		}
 		else if(lr->getType() == UPDATE) {
+			cout << "This must run" << endl;
 			UpdateLogRecord * chk_ptr = dynamic_cast<
 				UpdateLogRecord *>(lr);
 			int newLSN = se->nextLSN();
@@ -233,28 +239,52 @@ void LogMgr::undo(vector <LogRecord*> log, int txnum) {
 				chk_ptr->getBeforeImage(), chk_ptr->getprevLSN());
 			logtail.push_back(updLR);
 			// log.push_back(updLR);
-			// setLastLSN(chk_ptr->getTxID(), newLSN);
+			setLastLSN(chk_ptr->getTxID(), newLSN);
 			//getbefore or getafter?
 			bool a = se->pageWrite(chk_ptr->getPageID(), chk_ptr->getOffset(), chk_ptr->getBeforeImage(), newLSN);
 			// if(a == false) {
 			// 	return;
 			// }
 			/*This part not needed? (adding end record?)*/
-			newLSN = se->nextLSN();
-			logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
-			chk_ptr->getTxID(), END ));
-			tx_table.erase	(chk_ptr->getTxID());
+			// newLSN = se->nextLSN();
+			// logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+			// chk_ptr->getTxID(), END ));
+			// tx_table.erase	(chk_ptr->getTxID());
 
 			// setLastLSN(chk_ptr->getTxID(), newLSN);
 			// setLastLSN(chk_ptr->getTxID(), -1);
 			toUndo.pop();
 			toUndo.push(chk_ptr->getprevLSN());
+			if(chk_ptr->getprevLSN() == NULL_LSN) {
+				/*Write end log*/
+				newLSN = se->nextLSN();
+				logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+				chk_ptr->getTxID(), END ));
+				tx_table.erase	(chk_ptr->getTxID());
+			}
+			else {
+				// LogRecord* temp = 
+				/*Chance of segmentation fault here maybe?*/
+				if(findLSN(log, chk_ptr->getprevLSN())->getType() != UPDATE) {
+					/*Write end log*/
+					newLSN = se->nextLSN();
+					logtail.push_back(new LogRecord(newLSN, getLastLSN(chk_ptr->getTxID()),
+					chk_ptr->getTxID(), END ));
+					tx_table.erase	(chk_ptr->getTxID());
+				}
+			}
 		}
-		else {
+		else if(lr->getType() == ABORT) {
 			toUndo.pop();
 			toUndo.push(lr->getprevLSN());
 		}
+		else {
+			toUndo.pop();
+		}
 	}
+	/*
+	Any transactions still left must be because of written CLRs.
+	Now we find the larg */
 	//MODIFY DIRTY PAGE TABLE
 }
 
@@ -281,6 +311,7 @@ void LogMgr::abort(int txid) {
 	log.reserve(logStored.size() + logtail.size());
 	log.insert(log.end(), logStored.begin(), logStored.end());
 	log.insert(log.end(), logtail.begin(), logtail.end());
+	cout << log.size() << endl;
 	// analyze(log);
 	// redo(log);
 	// txTableEntry a = txTableEntry(lsn, U);
@@ -290,11 +321,11 @@ void LogMgr::abort(int txid) {
 	undo(log, txid);
 	//add end log
 	/*Commenting this part out because it should already be done in the undo phase*/
-	lsn = se->nextLSN();
+	// lsn = se->nextLSN();
+	// logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
+	// 	txid, END));
+	// tx_table.erase(txid);
 
-	logtail.push_back(new LogRecord(lsn, getLastLSN(txid), 
-		txid, END));
-	tx_table.erase(txid);
 	// setLastLSN(txid, lsn);
 }
 
